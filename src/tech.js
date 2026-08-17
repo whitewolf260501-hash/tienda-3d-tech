@@ -1,81 +1,97 @@
 import { db } from "./firebase.js";
 import { ref, onValue } from "firebase/database";
+import { productosData } from "./productos.js"; // Importamos el respaldo local
 
 const contenedorProductos = document.getElementById("contenedor-productos");
-
 let productosGlobales = [];
+let firebaseRespondio = false;
+
+function renderizarProductos(data) {
+    contenedorProductos.innerHTML = "";
+    productosGlobales = [];
+    let contadorEncontrados = 0;
+
+    Object.entries(data).forEach(([id, producto]) => {
+        if (producto.categoria && producto.categoria.toLowerCase() === "tecnologia") {
+            contadorEncontrados++;
+            productosGlobales.push({ id, ...producto });
+
+            const imagenSrc = producto.urlImagen && producto.urlImagen.trim() !== "" 
+                ? producto.urlImagen 
+                : "assets/imagen no encontrada.jpg";
+
+            const tarjeta = document.createElement("div");
+            tarjeta.classList.add("tarjeta-producto");
+
+            tarjeta.innerHTML = `
+                <div>
+                    <span style="font-size: 0.7rem; background: #eee; padding: 2px 6px; border-radius: 4px; color: #555;">Cód: ${producto.codigo || id}</span>
+                    <h3>${producto.nombre}</h3>
+                    <div class="contenedor-imagen">
+                        <img src="${imagenSrc}" alt="${producto.nombre}">
+                    </div>
+                    <p style="font-size: 0.8rem; color: #666; margin-bottom: 10px;">${producto.descripcion || ''}</p>
+                </div>
+                <div>
+                    <p class="precio">$${producto.precio}</p>
+                    <button class="btn-comprar" data-id="${id}" data-nombre="${producto.nombre}" data-precio="${producto.precio}">
+                        Añadir al carrito
+                    </button>
+                </div>
+            `;
+            contenedorProductos.appendChild(tarjeta);
+        }
+    });
+
+    if (contadorEncontrados === 0) {
+        contenedorProductos.innerHTML = "<p style='padding: 20px;'>No hay productos con la categoría 'tecnologia'.</p>";
+        return;
+    }
+    activarBotonesAgregar();
+}
 
 function cargarTecnologiaTiempoReal() {
-    contenedorProductos.innerHTML = "<p style='padding: 20px;'>Cargando tecnología en tiempo real...</p>";
-
+    contenedorProductos.innerHTML = "<p style='padding: 20px;'>Cargando tecnología...</p>";
     const productosRef = ref(db, "productos");
 
+    // Temporizador de seguridad: si Firebase falla o tarda, usa el respaldo local
+    const timeoutRespaldo = setTimeout(() => {
+        if (!firebaseRespondio) {
+            console.warn("Firebase tardó en responder. Usando catálogo local de respaldo.");
+            // Filtramos solo los de tecnología del archivo local
+            const techLocales = {};
+            Object.entries(productosData).forEach(([id, p]) => {
+                if (p.categoria && p.categoria.toLowerCase() === "tecnologia") {
+                    techLocales[id] = p;
+                }
+            });
+            renderizarProductos(techLocales);
+        }
+    }, 2500);
+
     onValue(productosRef, (snapshot) => {
+        firebaseRespondio = true;
+        clearTimeout(timeoutRespaldo);
         const data = snapshot.val();
 
         if (!data) {
-            contenedorProductos.innerHTML = "<p style='padding: 20px;'>No hay datos en la base de datos.</p>";
+            renderizarProductos(productosData); // Respaldo si está vacío
             return;
         }
-
-        contenedorProductos.innerHTML = "";
-        productosGlobales = [];
-        let contadorEncontrados = 0;
-
-        Object.entries(data).forEach(([id, producto]) => {
-            // Filtramos estrictamente los que tengan categoria "tecnologia"
-            if (producto.categoria && producto.categoria.toLowerCase() === "tecnologia") {
-                contadorEncontrados++;
-                productosGlobales.push({ id, ...producto });
-
-                const imagenSrc = producto.urlImagen && producto.urlImagen.trim() !== "" 
-                    ? producto.urlImagen 
-                    : "assets/imagen no encontrada.jpg";
-
-                const tarjeta = document.createElement("div");
-                tarjeta.classList.add("tarjeta-producto");
-
-                tarjeta.innerHTML = `
-                    <div>
-                        <span style="font-size: 0.7rem; background: #eee; padding: 2px 6px; border-radius: 4px; color: #555;">Cód: ${producto.codigo || id}</span>
-                        <h3>${producto.nombre}</h3>
-                        <div class="contenedor-imagen">
-                            <img src="${imagenSrc}" alt="${producto.nombre}">
-                        </div>
-                        <p style="font-size: 0.8rem; color: #666; margin-bottom: 10px;">${producto.descripcion || ''}</p>
-                    </div>
-                    <div>
-                        <p class="precio">$${producto.precio}</p>
-                        <button class="btn-comprar" data-id="${id}" data-nombre="${producto.nombre}" data-precio="${producto.precio}">
-                            Añadir al carrito
-                        </button>
-                    </div>
-                `;
-
-                contenedorProductos.appendChild(tarjeta);
-            }
-        });
-
-        if (contadorEncontrados === 0) {
-            contenedorProductos.innerHTML = "<p style='padding: 20px;'>No hay productos con la categoría 'tecnologia' en Firebase.</p>";
-            return;
-        }
-
-        activarBotonesAgregar();
+        renderizarProductos(data);
     }, (error) => {
-        console.error("Error de Firebase: ", error);
-        contenedorProductos.innerHTML = "<p style='padding: 20px;'>Error al conectar con Realtime Database.</p>";
+        console.warn("Error de Firebase, usando respaldo local: ", error);
+        firebaseRespondio = true;
+        clearTimeout(timeoutRespaldo);
+        renderizarProductos(productosData);
     });
 }
 
-// Funciones de herramientas (Excel y Etiquetas)
+// Funciones de herramientas y carrito (Iguales a las tuyas)
 function generarEtiquetasImpresion() {
-    if (productosGlobales.length === 0) {
-        alert("No hay productos para generar etiquetas.");
-        return;
-    }
+    if (productosGlobales.length === 0) { alert("No hay productos."); return; }
     let ventanaEtiquetas = window.open('', '_blank', 'width=800,height=600');
-    let htmlEtiquetas = `<!DOCTYPE html><html lang="es"><head><meta charset="UTF-8"><title>Etiquetas Tech</title><style>body{font-family:Arial;padding:20px}.grid{display:grid;grid-template-columns:repeat(3,1fr);gap:15px}.et{border:2px dashed #333;padding:15px;text-align:center;border-radius:6px}@media print{.no-print{display:none}}</style></head><body><div class="no-print" style="text-align:bottom;margin-bottom:20px"><button onclick="window.print()" style="padding:10px 20px;background:#2980b9;color:#fff;border:none;border-radius:4px;font-weight:bold;cursor:pointer">Imprimir</button></div><div class="grid">`;
+    let htmlEtiquetas = `<!DOCTYPE html><html lang="es"><head><meta charset="UTF-8"><title>Etiquetas Tech</title><style>body{font-family:Arial;padding:20px}.grid{display:grid;grid-template-columns:repeat(3,1fr);gap:15px}.et{border:2px dashed #333;padding:15px;text-align:center;border-radius:6px}@media print{.no-print{display:none}}</style></head><body><div class="no-print" style="margin-bottom:20px"><button onclick="window.print()" style="padding:10px 20px;background:#2980b9;color:#fff;border:none;border-radius:4px;cursor:pointer">Imprimir</button></div><div class="grid">`;
     productosGlobales.forEach(p => {
         htmlEtiquetas += `<div class="et"><div style="font-size:0.8rem;background:#f0f0f0;padding:2px;font-weight:bold;">${p.codigo || p.id}</div><h4>${p.nombre}</h4><div style="font-size:1.2rem;font-weight:bold;color:#27ae60;">$${p.precio}</div></div>`;
     });

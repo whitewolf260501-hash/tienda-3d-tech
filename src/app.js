@@ -1,120 +1,103 @@
 import { db } from "./firebase.js";
 import { ref, onValue } from "firebase/database";
+import { productosData } from "./productos.js"; // Respaldo local
 
 const contenedorProductos = document.getElementById("contenedor-productos");
-
 let productosGlobales = [];
+let firebaseRespondio = false;
+
+function renderizarInventario(data) {
+    contenedorProductos.innerHTML = "";
+    productosGlobales = [];
+
+    Object.entries(data).forEach(([id, producto]) => {
+        productosGlobales.push({ id, ...producto });
+
+        const imagenSrc = producto.urlImagen && producto.urlImagen.trim() !== "" 
+            ? producto.urlImagen 
+            : "assets/imagen no encontrada.jpg";
+
+        const tarjeta = document.createElement("div");
+        tarjeta.classList.add("tarjeta-producto");
+
+        tarjeta.innerHTML = `
+            <div>
+                <span style="font-size: 0.7rem; background: #eee; padding: 2px 6px; border-radius: 4px; color: #555;">Cód: ${producto.codigo || id}</span>
+                <h3>${producto.nombre}</h3>
+                <div class="contenedor-imagen">
+                    <img src="${imagenSrc}" alt="${producto.nombre}">
+                </div>
+                <p style="font-size: 0.8rem; color: #666; margin-bottom: 10px;">${producto.descripcion || ''}</p>
+            </div>
+            <div>
+                <p class="precio">$${producto.precio}</p>
+                <button class="btn-comprar" data-id="${id}" data-nombre="${producto.nombre}" data-precio="${producto.precio}">
+                    Añadir al carrito
+                </button>
+            </div>
+        `;
+        contenedorProductos.appendChild(tarjeta);
+    });
+
+    activarBotonesAgregar();
+}
 
 function cargarProductosTiempoReal() {
-    contenedorProductos.innerHTML = "<p style='padding: 20px;'>Cargando inventario en tiempo real...</p>";
-
+    contenedorProductos.innerHTML = "<p style='padding: 20px;'>Cargando inventario...</p>";
     const productosRef = ref(db, "productos");
 
+    const timeoutRespaldo = setTimeout(() => {
+        if (!firebaseRespondio) {
+            console.warn("Firebase tardó en responder. Usando catálogo local de respaldo.");
+            renderizarInventario(productosData);
+        }
+    }, 2500);
+
     onValue(productosRef, (snapshot) => {
+        firebaseRespondio = true;
+        clearTimeout(timeoutRespaldo);
         const data = snapshot.val();
 
         if (!data) {
-            contenedorProductos.innerHTML = "<p style='padding: 20px;'>No hay productos registrados todavía.</p>";
+            renderizarInventario(productosData);
             return;
         }
-
-        contenedorProductos.innerHTML = "";
-        productosGlobales = [];
-
-        Object.entries(data).forEach(([id, producto]) => {
-            productosGlobales.push({ id, ...producto });
-
-            const imagenSrc = producto.urlImagen && producto.urlImagen.trim() !== "" 
-                ? producto.urlImagen 
-                : "assets/imagen no encontrada.jpg";
-
-            const tarjeta = document.createElement("div");
-            tarjeta.classList.add("tarjeta-producto");
-
-            tarjeta.innerHTML = `
-                <div>
-                    <span style="font-size: 0.7rem; background: #eee; padding: 2px 6px; border-radius: 4px; color: #555;">Cód: ${producto.codigo || id}</span>
-                    <h3>${producto.nombre}</h3>
-                    <div class="contenedor-imagen">
-                        <img src="${imagenSrc}" alt="${producto.nombre}">
-                    </div>
-                    <p style="font-size: 0.8rem; color: #666; margin-bottom: 10px;">${producto.descripcion || ''}</p>
-                </div>
-                <div>
-                    <p class="precio">$${producto.precio}</p>
-                    <button class="btn-comprar" data-id="${id}" data-nombre="${producto.nombre}" data-precio="${producto.precio}">
-                        Añadir al carrito
-                    </button>
-                </div>
-            `;
-
-            contenedorProductos.appendChild(tarjeta);
-        });
-
-        activarBotonesAgregar();
+        renderizarInventario(data);
     }, (error) => {
-        console.error("Error al leer la base de datos: ", error);
-        contenedorProductos.innerHTML = "<p style='padding: 20px;'>Error al conectar con la base de datos.</p>";
+        console.warn("Error de Firebase, usando respaldo local: ", error);
+        firebaseRespondio = true;
+        clearTimeout(timeoutRespaldo);
+        renderizarInventario(productosData);
     });
 }
 
-// Nueva función: Generar Excel simplificado exclusivamente para etiquetas (Código, Nombre y Precio)
 function generarExcelEtiquetas() {
-    if (productosGlobales.length === 0) {
-        alert("No hay productos para generar etiquetas.");
-        return;
-    }
-
+    if (productosGlobales.length === 0) { alert("No hay productos."); return; }
     let csvContent = "data:text/csv;charset=utf-8,Codigo,Nombre,Precio\n";
-    
     productosGlobales.forEach(p => {
-        const codigo = p.codigo || p.id;
-        const nombre = `"${(p.nombre || "").replace(/"/g, '""')}"`;
-        const precio = p.precio || 0;
-
-        csvContent += `${codigo},${nombre},${precio}\n`;
+        csvContent += `${p.codigo || p.id},"${(p.nombre || "").replace(/"/g, '""')}",${p.precio || 0}\n`;
     });
-
-    const encodedUri = encodeURI(csvContent);
     const link = document.createElement("a");
-    link.setAttribute("href", encodedUri);
-    link.setAttribute("download", "etiquetas_productos.csv");
-    document.body.appendChild(link);
+    link.href = encodeURI(csvContent);
+    link.download = "etiquetas_productos.csv";
     link.click();
-    document.body.removeChild(link);
 }
 
-// Función general para descargar todo el inventario completo
 function exportarAExcel() {
-    if (productosGlobales.length === 0) {
-        alert("No hay productos para exportar.");
-        return;
-    }
-
+    if (productosGlobales.length === 0) return;
     let csvContent = "data:text/csv;charset=utf-8,Codigo,Nombre,Categoria,Precio,Descripcion\n";
     productosGlobales.forEach(p => {
-        const codigo = p.codigo || p.id;
-        const nombre = `"${(p.nombre || "").replace(/"/g, '""')}"`;
-        const categoria = `"${(p.categoria || "").replace(/"/g, '""')}"`;
-        const precio = p.precio || 0;
-        const descripcion = `"${(p.descripcion || "").replace(/"/g, '""')}"`;
-        csvContent += `${codigo},${nombre},${categoria},${precio},${descripcion}\n`;
+        csvContent += `${p.codigo || p.id},"${(p.nombre || "").replace(/"/g, '""')}","${(p.categoria || "").replace(/"/g, '""')}",${p.precio || 0},"${(p.descripcion || "").replace(/"/g, '""')}"\n`;
     });
-
-    const encodedUri = encodeURI(csvContent);
     const link = document.createElement("a");
-    link.setAttribute("href", encodedUri);
-    link.setAttribute("download", "inventario_tienda_3d_tech.csv");
-    document.body.appendChild(link);
+    link.href = encodeURI(csvContent);
+    link.download = "inventario_tienda_3d_tech.csv";
     link.click();
-    document.body.removeChild(link);
 }
 
-// Crear botones superiores
 function crearBotonesHerramientas() {
     const mainEl = document.querySelector("main");
     if (document.getElementById("barra-herramientas-admin")) return;
-
     const barra = document.createElement("div");
     barra.id = "barra-herramientas-admin";
     barra.style.cssText = "margin-bottom: 20px; display: flex; gap: 10px; flex-wrap: wrap;";
@@ -131,30 +114,25 @@ function crearBotonesHerramientas() {
 
     barra.appendChild(btnExportar);
     barra.appendChild(btnEtiquetas);
-
     mainEl.insertBefore(barra, contenedorProductos);
 }
 
 function activarBotonesAgregar() {
-    const botones = document.querySelectorAll(".btn-comprar");
-    botones.forEach(boton => {
-        boton.addEventListener("click", (e) => {
+    document.querySelectorAll(".btn-comprar").forEach(boton => {
+        boton.onclick = (e) => {
             const id = e.target.dataset.id;
             const nombre = e.target.dataset.nombre;
             const precio = parseFloat(e.target.dataset.precio);
 
             let carrito = JSON.parse(localStorage.getItem("carrito3d")) || [];
             const index = carrito.findIndex(item => item.id === id);
-            if (index > -1) {
-                carrito[index].cantidad += 1;
-            } else {
-                carrito.push({ id, nombre, precio, cantidad: 1 });
-            }
+            if (index > -1) carrito[index].cantidad += 1;
+            else carrito.push({ id, nombre, precio, cantidad: 1 });
 
             localStorage.setItem("carrito3d", JSON.stringify(carrito));
             actualizarContadorCarrito();
             alert(`¡${nombre} agregado al carrito!`);
-        });
+        };
     });
 }
 
